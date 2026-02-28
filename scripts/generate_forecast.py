@@ -233,14 +233,19 @@ if __name__ == "__main__":
     conn.close()
     engine.dispose()
 
-    # Generate daily projections for the next 6 months
+    # Generate daily projections for March 1 through October 31
     PT = timezone(timedelta(hours=-8))
     today = datetime.now(PT)
+    year = today.year
+    season_start = datetime(year, 3, 1, tzinfo=PT)
+    season_end = datetime(year, 10, 31, tzinfo=PT)
     forecast_days = []
 
-    for day_offset in range(0, 183):  # ~6 months
-        date = today + timedelta(days=day_offset)
+    date = season_start
+    while date <= season_end:
         doy = date.timetuple().tm_yday
+        # days since season start for blending
+        day_offset = (date - season_start).days
 
         # Water temperature: use historical average + this year's bias
         if doy in hist_water:
@@ -281,12 +286,12 @@ if __name__ == "__main__":
             "rain_pct": round(rain, 0),
             "component_scores": {k: round(v, 1) for k, v in scores.items()},
         })
+        date += timedelta(days=1)
 
     # Also generate historical year curves for comparison
-    # Show what the comfort score looked like in prior years at this time
     historical_curves = {}
-    for doy_offset in range(0, 183):
-        date = today + timedelta(days=doy_offset)
+    date = season_start
+    while date <= season_end:
         doy = date.timetuple().tm_yday
         if doy in hist_water:
             water_c = hist_water[doy]
@@ -304,6 +309,7 @@ if __name__ == "__main__":
             r = seasonal_rain_pct(doy)
             hist_score, _ = compute_comfort(water_f_hist, air, w, s, r)
             historical_curves[date.strftime("%Y-%m-%d")] = hist_score
+        date += timedelta(days=1)
 
     # Smooth the forecast with a 7-day rolling average for readability
     scores_raw = [d["overall_score"] for d in forecast_days]
@@ -321,6 +327,7 @@ if __name__ == "__main__":
 
     output = {
         "generated_at": today.strftime("%Y-%m-%dT%H:%M:%S"),
+        "year": year,
         "bias_f": round(bias_f, 1),
         "forecast": forecast_days,
         "historical_avg": historical_output,

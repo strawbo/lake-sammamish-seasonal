@@ -9,6 +9,11 @@ document.addEventListener("DOMContentLoaded", function () {
         });
 
     function render(data) {
+        // Year in title
+        const year = data.year || new Date().getFullYear();
+        document.getElementById("siteTitle").textContent = year + " Lake Sammamish Seasonal Outlook";
+        document.title = year + " Lake Sammamish Seasonal Outlook";
+
         // Timestamp
         const el = document.getElementById("last-updated");
         if (data.generated_at) {
@@ -299,6 +304,8 @@ document.addEventListener("DOMContentLoaded", function () {
                     scales: {
                         x: {
                             type: "time",
+                            min: new Date(year, 2, 1, 12).getTime(),  // March 1
+                            max: new Date(year, 9, 31, 12).getTime(), // October 31
                             time: {
                                 unit: "month",
                                 tooltipFormat: "MMM d",
