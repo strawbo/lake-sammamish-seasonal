@@ -461,6 +461,14 @@ if __name__ == "__main__":
         })
         date += timedelta(days=1)
 
+    # Smooth actuals too (daily peak solar/air temp swing wildly day-to-day)
+    for field in ["water_temp_f", "air_temp_f", "solar_w"]:
+        raw_vals = [d.get(field) if d.get(field) is not None else np.nan for d in actuals]
+        smoothed = pd.Series(raw_vals).rolling(window=SMOOTH_WINDOW, min_periods=1, center=True).mean()
+        for i, d in enumerate(actuals):
+            if not np.isnan(smoothed.iloc[i]):
+                d[field] = round(float(smoothed.iloc[i]), 1 if field != "solar_w" else 0)
+
     output = {
         "generated_at": today.strftime("%Y-%m-%dT%H:%M:%S"),
         "year": year,
