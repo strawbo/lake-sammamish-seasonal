@@ -156,9 +156,11 @@ def get_historical_weather_norms(conn):
     """Get historical weather norms from met_data by day-of-year.
 
     Uses daily MAX for air temp and solar (peak daytime values),
-    AVG for wind speed. Then averages across years.
+    AVG for wind speed. Then averages across a +/-7 day window around
+    each DOY to smooth out noise from limited years of data.
     Returns dict of doy -> {air_temp_f, wind_mph, solar_w}
     """
+    # First get raw per-DOY averages
     result = conn.execute(text("""
         SELECT doy,
                AVG(max_air_c) AS avg_max_air_c,
@@ -177,12 +179,32 @@ def get_historical_weather_norms(conn):
         GROUP BY doy ORDER BY doy;
     """))
     rows = result.fetchall()
-    norms = {}
+    raw = {}
     for r in rows:
         doy = int(r[0])
-        air_c = float(r[1]) if r[1] else None
-        wind_ms = float(r[2]) if r[2] else None
-        solar = float(r[3]) if r[3] else None
+        raw[doy] = {
+            "air_c": float(r[1]) if r[1] else None,
+            "wind_ms": float(r[2]) if r[2] else None,
+            "solar": float(r[3]) if r[3] else None,
+        }
+
+    # Smooth with a +/-7 day window around each DOY
+    WINDOW = 7
+    norms = {}
+    for doy in range(1, 366):
+        air_vals, wind_vals, solar_vals = [], [], []
+        for offset in range(-WINDOW, WINDOW + 1):
+            neighbor = ((doy - 1 + offset) % 365) + 1
+            if neighbor in raw:
+                if raw[neighbor]["air_c"] is not None:
+                    air_vals.append(raw[neighbor]["air_c"])
+                if raw[neighbor]["wind_ms"] is not None:
+                    wind_vals.append(raw[neighbor]["wind_ms"])
+                if raw[neighbor]["solar"] is not None:
+                    solar_vals.append(raw[neighbor]["solar"])
+        air_c = sum(air_vals) / len(air_vals) if air_vals else None
+        wind_ms = sum(wind_vals) / len(wind_vals) if wind_vals else None
+        solar = sum(solar_vals) / len(solar_vals) if solar_vals else None
         norms[doy] = {
             "air_temp_f": round(air_c * 9/5 + 32, 1) if air_c else None,
             "wind_mph": round(wind_ms * 2.237, 1) if wind_ms else None,
@@ -396,15 +418,32 @@ if __name__ == "__main__":
         date += timedelta(days=1)
 
     # Smooth the forecast with a 7-day rolling average for readability
+    SMOOTH_WINDOW = 7
     scores_raw = [d["overall_score"] for d in forecast_days]
-    scores_smoothed = pd.Series(scores_raw).rolling(window=7, min_periods=1, center=True).mean()
+    scores_smoothed = pd.Series(scores_raw).rolling(window=SMOOTH_WINDOW, min_periods=1, center=True).mean()
     for i, d in enumerate(forecast_days):
         d["smoothed_score"] = round(float(scores_smoothed.iloc[i]), 1)
 
+    # Smooth forecast metric values too (solar, air temp, water temp are noisy day-to-day)
+    for field in ["water_temp_f", "air_temp_f", "solar_w"]:
+        raw_vals = [d[field] if d[field] is not None else np.nan for d in forecast_days]
+        smoothed = pd.Series(raw_vals).rolling(window=SMOOTH_WINDOW, min_periods=1, center=True).mean()
+        for i, d in enumerate(forecast_days):
+            if not np.isnan(smoothed.iloc[i]):
+                d[field] = round(float(smoothed.iloc[i]), 1 if field != "solar_w" else 0)
+
     hist_scores_raw = [d["score"] if d["score"] is not None else np.nan for d in historical_days]
-    hist_smoothed = pd.Series(hist_scores_raw).rolling(window=7, min_periods=1, center=True).mean()
+    hist_smoothed = pd.Series(hist_scores_raw).rolling(window=SMOOTH_WINDOW, min_periods=1, center=True).mean()
     for i, d in enumerate(historical_days):
         d["smoothed_score"] = round(float(hist_smoothed.iloc[i]), 1) if not np.isnan(hist_smoothed.iloc[i]) else None
+
+    # Smooth historical metric values too
+    for field in ["water_temp_f", "air_temp_f", "solar_w"]:
+        raw_vals = [d.get(field) if d.get(field) is not None else np.nan for d in historical_days]
+        smoothed = pd.Series(raw_vals).rolling(window=SMOOTH_WINDOW, min_periods=1, center=True).mean()
+        for i, d in enumerate(historical_days):
+            if not np.isnan(smoothed.iloc[i]):
+                d[field] = round(float(smoothed.iloc[i]), 1 if field != "solar_w" else 0)
 
     # Build actuals: current year observed data (dates up to today)
     today_str = today.strftime("%Y-%m-%d")
