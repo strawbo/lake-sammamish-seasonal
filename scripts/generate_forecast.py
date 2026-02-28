@@ -98,16 +98,18 @@ def label_for_score(score):
 # --- Data queries ---
 
 def get_historical_water_temps(conn):
-    """Get average water temp by day-of-year across all historical years."""
+    """Get max water temp by day-of-year across all historical years."""
     result = conn.execute(text("""
-        SELECT EXTRACT(DOY FROM date) AS doy,
-               AVG(temperature_c) AS avg_temp_c,
-               COUNT(*) AS n_readings
-        FROM lake_data
-        WHERE depth_m < 1.5
-          AND temperature_c IS NOT NULL
-        GROUP BY EXTRACT(DOY FROM date)
-        ORDER BY doy;
+        SELECT doy, AVG(daily_max) AS avg_daily_max FROM (
+            SELECT EXTRACT(DOY FROM date) AS doy,
+                   EXTRACT(YEAR FROM date) AS yr,
+                   MAX(temperature_c) AS daily_max
+            FROM lake_data
+            WHERE depth_m < 1.5
+              AND temperature_c IS NOT NULL
+            GROUP BY EXTRACT(DOY FROM date), EXTRACT(YEAR FROM date)
+        ) sub
+        GROUP BY doy ORDER BY doy;
     """))
     rows = result.fetchall()
     return {int(r[0]): float(r[1]) for r in rows}
@@ -153,17 +155,26 @@ def get_current_year_bias(conn):
 def get_historical_weather_norms(conn):
     """Get historical weather norms from met_data by day-of-year.
 
+    Uses daily MAX for air temp and solar (peak daytime values),
+    AVG for wind speed. Then averages across years.
     Returns dict of doy -> {air_temp_f, wind_mph, solar_w}
     """
     result = conn.execute(text("""
-        SELECT EXTRACT(DOY FROM date) AS doy,
-               AVG(air_temperature_c) AS avg_air_c,
-               AVG(wind_speed_ms) AS avg_wind_ms,
-               AVG(solar_radiation_w) AS avg_solar_w
-        FROM met_data
-        WHERE air_temperature_c IS NOT NULL
-        GROUP BY EXTRACT(DOY FROM date)
-        ORDER BY doy;
+        SELECT doy,
+               AVG(max_air_c) AS avg_max_air_c,
+               AVG(avg_wind_ms) AS avg_wind_ms,
+               AVG(max_solar_w) AS avg_max_solar_w
+        FROM (
+            SELECT EXTRACT(DOY FROM date::date) AS doy,
+                   date::date AS day,
+                   MAX(air_temperature_c) AS max_air_c,
+                   AVG(wind_speed_ms) AS avg_wind_ms,
+                   MAX(solar_radiation_w) AS max_solar_w
+            FROM met_data
+            WHERE air_temperature_c IS NOT NULL
+            GROUP BY EXTRACT(DOY FROM date::date), date::date
+        ) daily
+        GROUP BY doy ORDER BY doy;
     """))
     rows = result.fetchall()
     norms = {}
@@ -231,9 +242,10 @@ if __name__ == "__main__":
     print(f"Latest water temp: {latest_water_f}°F")
 
     # Get current year daily actuals: water temp from lake_data, weather from met_data
+    # Use MAX for water temp, air temp, solar (peak daytime values)
     current_year_water = {}
     rows = conn.execute(text("""
-        SELECT date, AVG(temperature_c) AS avg_temp_c
+        SELECT date, MAX(temperature_c) AS max_temp_c
         FROM lake_data
         WHERE depth_m < 1.5
           AND temperature_c IS NOT NULL
@@ -246,14 +258,14 @@ if __name__ == "__main__":
 
     current_year_weather = {}
     rows = conn.execute(text("""
-        SELECT date,
-               AVG(air_temperature_c) AS avg_air_c,
+        SELECT date::date AS day,
+               MAX(air_temperature_c) AS max_air_c,
                AVG(wind_speed_ms) AS avg_wind_ms,
-               AVG(solar_radiation_w) AS avg_solar_w
+               MAX(solar_radiation_w) AS max_solar_w
         FROM met_data
         WHERE date >= DATE_TRUNC('year', NOW())
           AND air_temperature_c IS NOT NULL
-        GROUP BY date ORDER BY date;
+        GROUP BY date::date ORDER BY day;
     """)).fetchall()
     for r in rows:
         air_c = float(r[1]) if r[1] else None
@@ -269,42 +281,64 @@ if __name__ == "__main__":
     conn.close()
     engine.dispose()
 
-    # Generate daily projections for March 1 through October 31
+    # Generate daily projections for the full year
     PT = timezone(timedelta(hours=-8))
     today = datetime.now(PT)
     year = today.year
+    today_str = today.strftime("%Y-%m-%d")
     season_start = datetime(year, 1, 1, tzinfo=PT)
     season_end = datetime(year, 12, 31, tzinfo=PT)
     forecast_days = []
 
+    # Find last known actuals for blending at forecast boundary
+    latest_actuals = {}
+    if current_year_water:
+        last_water_date = max(current_year_water.keys())
+        latest_actuals["water_temp_f"] = current_year_water[last_water_date]
+    elif latest_water_f:
+        latest_actuals["water_temp_f"] = latest_water_f
+    if current_year_weather:
+        last_weather_date = max(current_year_weather.keys())
+        lw = current_year_weather[last_weather_date]
+        if lw.get("air_temp_f") is not None:
+            latest_actuals["air_temp_f"] = lw["air_temp_f"]
+        if lw.get("solar_w") is not None:
+            latest_actuals["solar_w"] = lw["solar_w"]
+
+    BLEND_DAYS = 14
+
     date = season_start
     while date <= season_end:
         doy = date.timetuple().tm_yday
-        # days since season start for blending
-        day_offset = (date - season_start).days
+        ds = date.strftime("%Y-%m-%d")
+        days_after_today = (date.date() - today.date()).days
 
-        # Water temperature: use historical average + this year's bias
+        # Water temperature: historical norm + bias
         if doy in hist_water:
             water_c = hist_water[doy]
             water_f = round(water_c * 9/5 + 32 + bias_f, 1)
         else:
-            # Interpolate from nearest known days
-            water_f = latest_water_f or 50
-
-        # For the first few days, blend from actual to projected
-        if day_offset < 14 and latest_water_f is not None:
-            blend = day_offset / 14.0
-            water_f = round(latest_water_f * (1 - blend) + water_f * blend, 1)
+            water_f = latest_actuals.get("water_temp_f", 50)
 
         # Weather: prefer historical norms, fall back to seasonal model
         if doy in weather_norms and weather_norms[doy]["air_temp_f"] is not None:
-            air_f = weather_norms[doy]["air_temp_f"] + bias_f * 0.3  # slight correlation
+            air_f = weather_norms[doy]["air_temp_f"] + bias_f * 0.3
             wind = weather_norms[doy]["wind_mph"]
             solar = weather_norms[doy]["solar_w"]
         else:
             air_f = seasonal_air_temp_f(doy) + bias_f * 0.3
             wind = seasonal_wind_mph(doy)
             solar = seasonal_solar_w(doy)
+
+        # Blend from last actual toward projected over BLEND_DAYS after today
+        if 0 < days_after_today <= BLEND_DAYS:
+            blend = days_after_today / BLEND_DAYS
+            if "water_temp_f" in latest_actuals:
+                water_f = round(latest_actuals["water_temp_f"] * (1 - blend) + water_f * blend, 1)
+            if "air_temp_f" in latest_actuals:
+                air_f = round(latest_actuals["air_temp_f"] * (1 - blend) + air_f * blend, 1)
+            if "solar_w" in latest_actuals and solar is not None:
+                solar = round(latest_actuals["solar_w"] * (1 - blend) + solar * blend, 0)
 
         rain = seasonal_rain_pct(doy)
 
