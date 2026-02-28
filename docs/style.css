@@ -247,8 +247,9 @@ html, body {
     gap: 0.5rem 1.25rem;
     font-size: 0.85rem;
     color: #666;
-    border-top: 1px solid #f0f0f0;
-    padding-top: 0.75rem;
+    border-bottom: 1px solid #f0f0f0;
+    padding-bottom: 0.75rem;
+    margin-bottom: 0.75rem;
 }
 
 .detail-condition {
