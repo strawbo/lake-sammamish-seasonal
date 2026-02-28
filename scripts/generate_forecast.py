@@ -273,8 +273,8 @@ if __name__ == "__main__":
     PT = timezone(timedelta(hours=-8))
     today = datetime.now(PT)
     year = today.year
-    season_start = datetime(year, 3, 1, tzinfo=PT)
-    season_end = datetime(year, 10, 31, tzinfo=PT)
+    season_start = datetime(year, 1, 1, tzinfo=PT)
+    season_end = datetime(year, 12, 31, tzinfo=PT)
     forecast_days = []
 
     date = season_start

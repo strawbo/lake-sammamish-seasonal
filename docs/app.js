@@ -359,8 +359,8 @@ document.addEventListener("DOMContentLoaded", function () {
                     scales: {
                         x: {
                             type: "time",
-                            min: new Date(year, 2, 1, 12).getTime(),
-                            max: new Date(year, 9, 31, 12).getTime(),
+                            min: new Date(year, 0, 1, 12).getTime(),   // January 1
+                            max: new Date(year, 11, 31, 12).getTime(), // December 31
                             time: {
                                 unit: "month",
                                 tooltipFormat: "MMM d",
