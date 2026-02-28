@@ -30,14 +30,9 @@ jobs:
         run: python scripts/generate_forecast.py
 
       - name: Commit and push
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/strawbo/lake-sammamish-seasonal.git
-          git fetch origin main
-          git reset --soft origin/main
           git add docs/data.json
           git diff --cached --quiet || git commit -m "Update forecast data"
           git push origin main || echo "Nothing to push"
