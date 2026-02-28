@@ -17,7 +17,7 @@ import math
 import socket
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
@@ -234,7 +234,8 @@ if __name__ == "__main__":
     engine.dispose()
 
     # Generate daily projections for the next 6 months
-    today = datetime.now()
+    PT = timezone(timedelta(hours=-8))
+    today = datetime.now(PT)
     forecast_days = []
 
     for day_offset in range(0, 183):  # ~6 months
