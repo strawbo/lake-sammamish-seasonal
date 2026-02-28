@@ -57,7 +57,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 forecastField: "smoothed_score",
                 histField: "smoothed_score",
                 actualsField: null,  // comfort has no separate actuals
-                label: "Comfort Score",
+                label: "Swim Score",
                 unit: "",
                 color: "#2980b9",
                 yMin: 0,

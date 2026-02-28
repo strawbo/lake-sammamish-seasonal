@@ -9,12 +9,16 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 </head>
 <body>
+    <nav class="site-nav">
+        <a href="/lake-sammamish" class="nav-link">Swim Score</a>
+        <a href="/lake-sammamish-seasonal" class="nav-link active">Seasonal Outlook</a>
+    </nav>
     <h1 class="site-title" id="siteTitle">Lake Sammamish Seasonal Outlook</h1>
-    <p id="subtitle" class="subtitle">Swimming comfort projection</p>
+    <p id="subtitle" class="subtitle">Swim score projection</p>
     <p id="last-updated" class="timestamp"></p>
 
     <div class="metric-pills" id="metricPills">
-        <button class="metric-pill active" data-metric="comfort">Comfort Score</button>
+        <button class="metric-pill active" data-metric="comfort">Swim Score</button>
         <button class="metric-pill" data-metric="water_temp">Water Temp</button>
         <button class="metric-pill" data-metric="air_temp">Air Temp</button>
         <button class="metric-pill" data-metric="solar">Solar</button>
@@ -46,7 +50,7 @@
     </div>
 
     <div class="tier-guide">
-        <h3>Comfort Tiers</h3>
+        <h3>Swim Score Tiers</h3>
         <div class="tier-row"><span class="tier-badge excellent">80-100</span> Excellent — ideal for swimming</div>
         <div class="tier-row"><span class="tier-badge good">60-79</span> Good — enjoyable conditions</div>
         <div class="tier-row"><span class="tier-badge fair">40-59</span> Fair — swimmable with caveats</div>
@@ -56,7 +60,7 @@
 
     <p class="footnote">
         Projection based on historical water temperatures, weather patterns, and the
-        <a href="/lake-sammamish">comfort scoring model</a>. Actual conditions will vary.
+        <a href="/lake-sammamish">swim score model</a>. Actual conditions will vary.
     </p>
 
     <script src="app.js"></script>
