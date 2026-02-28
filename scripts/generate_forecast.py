@@ -14,11 +14,11 @@ The approach:
 import os
 import json
 import math
-import psycopg2
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
 
 load_dotenv()
 DB_URL = os.getenv("SUPABASE_DB_URL")
@@ -88,9 +88,9 @@ def label_for_score(score):
 
 # --- Data queries ---
 
-def get_historical_water_temps(cursor):
+def get_historical_water_temps(conn):
     """Get average water temp by day-of-year across all historical years."""
-    cursor.execute("""
+    result = conn.execute(text("""
         SELECT EXTRACT(DOY FROM date) AS doy,
                AVG(temperature_c) AS avg_temp_c,
                COUNT(*) AS n_readings
@@ -99,18 +99,18 @@ def get_historical_water_temps(cursor):
           AND temperature_c IS NOT NULL
         GROUP BY EXTRACT(DOY FROM date)
         ORDER BY doy;
-    """)
-    rows = cursor.fetchall()
+    """))
+    rows = result.fetchall()
     return {int(r[0]): float(r[1]) for r in rows}
 
 
-def get_current_year_bias(cursor):
+def get_current_year_bias(conn):
     """Compare this year's recent water temps to historical average.
 
     Returns the average difference (°F) between this year and historical.
     Positive = warmer than normal, negative = colder.
     """
-    cursor.execute("""
+    result = conn.execute(text("""
         WITH current_year AS (
             SELECT EXTRACT(DOY FROM date) AS doy,
                    MAX(temperature_c) AS temp_c
@@ -133,20 +133,20 @@ def get_current_year_bias(cursor):
         SELECT AVG(c.temp_c - h.avg_temp_c) AS bias_c
         FROM current_year c
         JOIN historical h ON c.doy = h.doy;
-    """)
-    row = cursor.fetchone()
+    """))
+    row = result.fetchone()
     if row and row[0] is not None:
         bias_c = float(row[0])
         return bias_c * 9 / 5  # convert to Fahrenheit
     return 0.0
 
 
-def get_historical_weather_norms(cursor):
+def get_historical_weather_norms(conn):
     """Get historical weather norms from met_data by day-of-year.
 
     Returns dict of doy -> {air_temp_f, wind_mph, solar_w}
     """
-    cursor.execute("""
+    result = conn.execute(text("""
         SELECT EXTRACT(DOY FROM date) AS doy,
                AVG(air_temperature_c) AS avg_air_c,
                AVG(wind_speed_ms) AS avg_wind_ms,
@@ -155,20 +155,20 @@ def get_historical_weather_norms(cursor):
         WHERE air_temperature_c IS NOT NULL
         GROUP BY EXTRACT(DOY FROM date)
         ORDER BY doy;
-    """)
-    rows = cursor.fetchall()
-    result = {}
+    """))
+    rows = result.fetchall()
+    norms = {}
     for r in rows:
         doy = int(r[0])
         air_c = float(r[1]) if r[1] else None
         wind_ms = float(r[2]) if r[2] else None
         solar = float(r[3]) if r[3] else None
-        result[doy] = {
+        norms[doy] = {
             "air_temp_f": round(air_c * 9/5 + 32, 1) if air_c else None,
             "wind_mph": round(wind_ms * 2.237, 1) if wind_ms else None,
             "solar_w": round(solar, 0) if solar else None,
         }
-    return result
+    return norms
 
 
 # --- Seasonal climate model (fallback when met_data is sparse) ---
@@ -198,32 +198,31 @@ def seasonal_rain_pct(doy):
 # --- Main ---
 
 if __name__ == "__main__":
-    conn = psycopg2.connect(DB_URL)
-    cursor = conn.cursor()
+    engine = create_engine(DB_URL)
+    conn = engine.connect()
     print("Connected to database")
 
     # Get historical data
-    hist_water = get_historical_water_temps(cursor)
+    hist_water = get_historical_water_temps(conn)
     print(f"Historical water temp data: {len(hist_water)} days-of-year")
 
-    bias_f = get_current_year_bias(cursor)
+    bias_f = get_current_year_bias(conn)
     print(f"Current year water temp bias: {bias_f:+.1f}°F vs historical")
 
-    weather_norms = get_historical_weather_norms(cursor)
+    weather_norms = get_historical_weather_norms(conn)
     print(f"Historical weather norms: {len(weather_norms)} days-of-year")
 
     # Get latest actual water temp for starting point
-    cursor.execute("""
+    row = conn.execute(text("""
         SELECT temperature_c FROM lake_data
         WHERE depth_m < 1.5 AND temperature_c IS NOT NULL
         ORDER BY date DESC LIMIT 1;
-    """)
-    row = cursor.fetchone()
+    """)).fetchone()
     latest_water_f = round(float(row[0]) * 9/5 + 32, 1) if row else None
     print(f"Latest water temp: {latest_water_f}°F")
 
-    cursor.close()
     conn.close()
+    engine.dispose()
 
     # Generate daily projections for the next 6 months
     today = datetime.now()
