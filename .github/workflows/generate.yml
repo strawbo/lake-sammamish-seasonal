@@ -1,0 +1,43 @@
+name: Generate Seasonal Forecast
+
+on:
+  schedule:
+    - cron: "30 14 * * *"  # 6:30 AM PT daily
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate forecast
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: python scripts/generate_forecast.py
+
+      - name: Commit and push
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/strawbo/lake-sammamish-seasonal.git
+          git fetch origin main
+          git reset --soft origin/main
+          git add docs/data.json
+          git diff --cached --quiet || git commit -m "Update forecast data"
+          git push origin main || echo "Nothing to push"

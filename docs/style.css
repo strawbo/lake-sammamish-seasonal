@@ -1,0 +1,149 @@
+html {
+    background-color: #f5f7fa;
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    font-family: 'Inter', 'Segoe UI', 'Helvetica Neue', sans-serif;
+    overflow-x: hidden;
+}
+
+.site-title {
+    font-size: 1.6rem;
+    font-weight: 700;
+    text-align: center;
+    color: #222;
+    margin: 1.5rem 1rem 0.1rem;
+}
+
+.subtitle {
+    font-size: 1rem;
+    text-align: center;
+    color: #666;
+    margin: 0 0 0.15rem;
+}
+
+.timestamp {
+    font-size: 0.85rem;
+    text-align: center;
+    color: #aaa;
+    margin: 0 0 1rem;
+}
+
+.chart-container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 1rem;
+    height: 55vh;
+    min-height: 320px;
+}
+
+.chart-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.legend-strip {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+    color: #555;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.legend-dot.projected { background: #2980b9; }
+.legend-dot.historical { background: #bbb; }
+
+.info-strip {
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 0 1rem 1rem;
+    text-align: center;
+    font-size: 0.95rem;
+    color: #555;
+}
+
+.tier-guide {
+    max-width: 500px;
+    margin: 0.5rem auto 1.5rem;
+    padding: 1rem 1.5rem;
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #e0e0e0;
+}
+
+.tier-guide h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #333;
+    margin: 0 0 0.5rem;
+}
+
+.tier-row {
+    font-size: 0.9rem;
+    color: #555;
+    margin: 0.3rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.tier-badge {
+    display: inline-block;
+    width: 50px;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.15rem 0.4rem;
+    border-radius: 10px;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.tier-badge.excellent { background: #27ae60; }
+.tier-badge.good { background: #d4ac0d; }
+.tier-badge.fair { background: #e67e22; }
+.tier-badge.poor { background: #e74c3c; }
+.tier-badge.unsafe { background: #8e44ad; }
+
+.footnote {
+    max-width: 600px;
+    margin: 0 auto 2rem;
+    padding: 0 1rem;
+    text-align: center;
+    font-size: 0.8rem;
+    color: #aaa;
+}
+
+.footnote a {
+    color: #888;
+}
+
+/* Comfort tier background bands */
+
+@media (max-width: 600px) {
+    .site-title { font-size: 1.35rem; }
+    .chart-container {
+        height: 45vh;
+        min-height: 280px;
+    }
+    .tier-guide { margin: 0.5rem 0.75rem 1.5rem; }
+}
