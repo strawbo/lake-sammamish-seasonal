@@ -34,6 +34,37 @@ html, body {
     margin: 0 0 1rem;
 }
 
+.metric-pills {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0 1rem 0.75rem;
+    flex-wrap: wrap;
+}
+
+.metric-pill {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    padding: 0.3rem 0.9rem;
+    font-size: 0.85rem;
+    color: #666;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.metric-pill:hover {
+    border-color: #bbb;
+    color: #444;
+}
+
+.metric-pill.active {
+    background: #2980b9;
+    border-color: #2980b9;
+    color: #fff;
+}
+
 .chart-container {
     max-width: 900px;
     margin: 0 auto;

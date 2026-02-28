@@ -46,22 +46,81 @@ document.addEventListener("DOMContentLoaded", function () {
             subtitle.textContent = text;
         }
 
-        // Chart data
-        const projected = data.forecast.map(d => ({
-            x: new Date(d.date + "T12:00:00"),
-            y: d.smoothed_score
-        }));
-
-        const historical = data.historical_avg.map(d => ({
-            x: new Date(d.date + "T12:00:00"),
-            y: d.score
-        }));
+        // Metric definitions
+        const metrics = {
+            comfort: {
+                field: "smoothed_score",
+                label: "Comfort Score",
+                unit: "",
+                color: "#2980b9",
+                yMin: 0,
+                yMax: 100,
+                stepSize: 20,
+                tickLabels: { 0: "Unsafe", 20: "Poor", 40: "Fair", 60: "Good", 80: "Excellent", 100: "" },
+                tierBands: true,
+                hasHistorical: true,
+                tooltipSuffix: "",
+            },
+            water_temp: {
+                field: "water_temp_f",
+                label: "Water Temperature",
+                unit: "\u00B0F",
+                color: "#e67e22",
+                yMin: 35,
+                yMax: 85,
+                stepSize: 10,
+                tickLabels: null,
+                tierBands: false,
+                hasHistorical: false,
+                tooltipSuffix: "\u00B0F",
+            },
+            air_temp: {
+                field: "air_temp_f",
+                label: "Air Temperature",
+                unit: "\u00B0F",
+                color: "#e74c3c",
+                yMin: 30,
+                yMax: 100,
+                stepSize: 10,
+                tickLabels: null,
+                tierBands: false,
+                hasHistorical: false,
+                tooltipSuffix: "\u00B0F",
+            },
+            solar: {
+                field: "solar_w",
+                label: "Solar Radiation",
+                unit: " W/m\u00B2",
+                color: "#f1c40f",
+                yMin: 0,
+                yMax: 800,
+                stepSize: 200,
+                tickLabels: null,
+                tierBands: false,
+                hasHistorical: false,
+                tooltipSuffix: " W/m\u00B2",
+            },
+            rain: {
+                field: "rain_pct",
+                label: "Rain Chance",
+                unit: "%",
+                color: "#3498db",
+                yMin: 0,
+                yMax: 100,
+                stepSize: 25,
+                tickLabels: null,
+                tierBands: false,
+                hasHistorical: false,
+                tooltipSuffix: "%",
+            },
+        };
 
         // Comfort tier background bands
         function tierBandsPlugin() {
             return {
                 id: "tierBands",
                 beforeDraw: (chart) => {
+                    if (!chart.config._tierBands) return;
                     const { ctx, chartArea: { left, right, top, bottom }, scales: { y } } = chart;
                     if (!y) return;
                     ctx.save();
@@ -159,11 +218,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
             const condEl = document.getElementById("detailConditions");
             const conditions = [
-                { label: "Water", value: dayData.water_temp_f != null ? dayData.water_temp_f + "\u00B0F" : "—" },
-                { label: "Air", value: dayData.air_temp_f != null ? dayData.air_temp_f + "\u00B0F" : "—" },
-                { label: "Wind", value: dayData.wind_mph != null ? dayData.wind_mph + " mph" : "—" },
-                { label: "Sun", value: dayData.solar_w != null ? Math.round(dayData.solar_w) + " W/m\u00B2" : "—" },
-                { label: "Rain", value: dayData.rain_pct != null ? Math.round(dayData.rain_pct) + "%" : "—" },
+                { label: "Water", value: dayData.water_temp_f != null ? dayData.water_temp_f + "\u00B0F" : "\u2014" },
+                { label: "Air", value: dayData.air_temp_f != null ? dayData.air_temp_f + "\u00B0F" : "\u2014" },
+                { label: "Wind", value: dayData.wind_mph != null ? dayData.wind_mph + " mph" : "\u2014" },
+                { label: "Sun", value: dayData.solar_w != null ? Math.round(dayData.solar_w) + " W/m\u00B2" : "\u2014" },
+                { label: "Rain", value: dayData.rain_pct != null ? Math.round(dayData.rain_pct) + "%" : "\u2014" },
             ];
             condEl.innerHTML = conditions.map(c =>
                 `<span class="detail-condition"><span class="detail-condition-label">${c.label}</span> <span class="detail-condition-value">${c.value}</span></span>`
@@ -172,90 +231,131 @@ document.addEventListener("DOMContentLoaded", function () {
             detailPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
         }
 
+        // Build chart for a given metric
         const canvas = document.getElementById("forecastChart");
         canvas.style.cursor = "pointer";
-        new Chart(canvas, {
-            type: "line",
-            data: {
-                datasets: [
-                    {
-                        label: "This Year (Projected)",
-                        data: projected,
-                        borderColor: "#2980b9",
-                        backgroundColor: "#2980b922",
-                        fill: true,
-                        borderWidth: 2.5,
-                        pointRadius: 0,
-                        tension: 0.4
+        let chart = null;
+
+        function buildChart(metricKey) {
+            if (chart) chart.destroy();
+
+            const m = metrics[metricKey];
+
+            const projected = data.forecast.map(d => ({
+                x: new Date(d.date + "T12:00:00"),
+                y: d[m.field]
+            }));
+
+            const datasets = [
+                {
+                    label: m.label + " (Projected)",
+                    data: projected,
+                    borderColor: m.color,
+                    backgroundColor: m.color + "22",
+                    fill: true,
+                    borderWidth: 2.5,
+                    pointRadius: 0,
+                    tension: 0.4
+                }
+            ];
+
+            if (m.hasHistorical && data.historical_avg) {
+                const historical = data.historical_avg.map(d => ({
+                    x: new Date(d.date + "T12:00:00"),
+                    y: d.score
+                }));
+                datasets.push({
+                    label: "Historical Average",
+                    data: historical,
+                    borderColor: "#bbb",
+                    backgroundColor: "transparent",
+                    fill: false,
+                    borderWidth: 1.5,
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    tension: 0.4
+                });
+            }
+
+            const yTickCallback = m.tickLabels
+                ? function (value) { return m.tickLabels[value] || ""; }
+                : function (value) { return value + m.unit; };
+
+            chart = new Chart(canvas, {
+                type: "line",
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: "index", intersect: false },
+                    onClick: (evt, elements) => {
+                        if (!elements.length) return;
+                        const idx = elements[0].index;
+                        const di = elements[0].datasetIndex;
+                        if (di !== 0) return;
+                        const day = data.forecast[idx];
+                        if (day) showDetail(day);
                     },
-                    {
-                        label: "Historical Average",
-                        data: historical,
-                        borderColor: "#bbb",
-                        backgroundColor: "transparent",
-                        fill: false,
-                        borderWidth: 1.5,
-                        borderDash: [6, 4],
-                        pointRadius: 0,
-                        tension: 0.4
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: "index", intersect: false },
-                onClick: (evt, elements) => {
-                    if (!elements.length) return;
-                    const idx = elements[0].index;
-                    const di = elements[0].datasetIndex;
-                    if (di !== 0) return; // only projected line
-                    const day = data.forecast[idx];
-                    if (day) showDetail(day);
-                },
-                scales: {
-                    x: {
-                        type: "time",
-                        time: {
-                            unit: "month",
-                            tooltipFormat: "MMM d",
-                            displayFormats: { month: "MMM" }
-                        },
-                        ticks: { font: { size: 13 } },
-                        grid: { color: "rgba(0,0,0,0.05)" }
-                    },
-                    y: {
-                        min: 0,
-                        max: 100,
-                        ticks: {
-                            font: { size: 12 },
-                            stepSize: 20,
-                            callback: function (value) {
-                                const labels = { 0: "Unsafe", 20: "Poor", 40: "Fair", 60: "Good", 80: "Excellent", 100: "" };
-                                return labels[value] || "";
-                            }
-                        },
-                        grid: { color: "rgba(0,0,0,0.05)" }
-                    }
-                },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            title: (items) => {
-                                if (!items.length) return "";
-                                return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric" }).format(new Date(items[0].raw.x));
+                    scales: {
+                        x: {
+                            type: "time",
+                            time: {
+                                unit: "month",
+                                tooltipFormat: "MMM d",
+                                displayFormats: { month: "MMM" }
                             },
-                            label: (ti) => {
-                                const score = Math.round(ti.raw.y);
-                                const prefix = ti.datasetIndex === 0 ? "Projected" : "Historical";
-                                return `${prefix}: ${score}`;
+                            ticks: { font: { size: 13 } },
+                            grid: { color: "rgba(0,0,0,0.05)" }
+                        },
+                        y: {
+                            min: m.yMin,
+                            max: m.yMax,
+                            ticks: {
+                                font: { size: 12 },
+                                stepSize: m.stepSize,
+                                callback: yTickCallback
+                            },
+                            grid: { color: "rgba(0,0,0,0.05)" }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => {
+                                    if (!items.length) return "";
+                                    return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric" }).format(new Date(items[0].raw.x));
+                                },
+                                label: (ti) => {
+                                    const val = ti.raw.y != null ? Math.round(ti.raw.y) : "\u2014";
+                                    if (ti.datasetIndex === 0) return m.label + ": " + val + m.tooltipSuffix;
+                                    return "Historical: " + val;
+                                }
                             }
                         }
                     }
-                }
-            },
-            plugins: [tierBandsPlugin(), todayLinePlugin()]
+                },
+                plugins: [tierBandsPlugin(), todayLinePlugin()]
+            });
+            chart.config._tierBands = m.tierBands;
+        }
+
+        // Legend visibility
+        const legendStrip = document.getElementById("legendStrip");
+
+        function setMetric(metricKey) {
+            document.querySelectorAll(".metric-pill").forEach(p => p.classList.remove("active"));
+            document.querySelector(`.metric-pill[data-metric="${metricKey}"]`).classList.add("active");
+            buildChart(metricKey);
+            legendStrip.style.display = metrics[metricKey].hasHistorical ? "" : "none";
+        }
+
+        // Pill click handlers
+        document.querySelectorAll(".metric-pill").forEach(pill => {
+            pill.addEventListener("click", () => setMetric(pill.dataset.metric));
         });
+
+        // Initial render
+        setMetric("comfort");
     }
 });
