@@ -230,6 +230,42 @@ if __name__ == "__main__":
     latest_water_f = round(float(row[0]) * 9/5 + 32, 1) if row else None
     print(f"Latest water temp: {latest_water_f}°F")
 
+    # Get current year daily actuals: water temp from lake_data, weather from met_data
+    current_year_water = {}
+    rows = conn.execute(text("""
+        SELECT date, AVG(temperature_c) AS avg_temp_c
+        FROM lake_data
+        WHERE depth_m < 1.5
+          AND temperature_c IS NOT NULL
+          AND date >= DATE_TRUNC('year', NOW())
+        GROUP BY date ORDER BY date;
+    """)).fetchall()
+    for r in rows:
+        current_year_water[r[0].strftime("%Y-%m-%d")] = round(float(r[1]) * 9/5 + 32, 1)
+    print(f"Current year water temp actuals: {len(current_year_water)} days")
+
+    current_year_weather = {}
+    rows = conn.execute(text("""
+        SELECT date,
+               AVG(air_temperature_c) AS avg_air_c,
+               AVG(wind_speed_ms) AS avg_wind_ms,
+               AVG(solar_radiation_w) AS avg_solar_w
+        FROM met_data
+        WHERE date >= DATE_TRUNC('year', NOW())
+          AND air_temperature_c IS NOT NULL
+        GROUP BY date ORDER BY date;
+    """)).fetchall()
+    for r in rows:
+        air_c = float(r[1]) if r[1] else None
+        wind_ms = float(r[2]) if r[2] else None
+        solar = float(r[3]) if r[3] else None
+        current_year_weather[r[0].strftime("%Y-%m-%d")] = {
+            "air_temp_f": round(air_c * 9/5 + 32, 1) if air_c else None,
+            "wind_mph": round(wind_ms * 2.237, 1) if wind_ms else None,
+            "solar_w": round(solar, 0) if solar else None,
+        }
+    print(f"Current year weather actuals: {len(current_year_weather)} days")
+
     conn.close()
     engine.dispose()
 
@@ -289,26 +325,40 @@ if __name__ == "__main__":
         date += timedelta(days=1)
 
     # Also generate historical year curves for comparison
-    historical_curves = {}
+    historical_days = []
     date = season_start
     while date <= season_end:
         doy = date.timetuple().tm_yday
+
+        water_f_hist = None
         if doy in hist_water:
             water_c = hist_water[doy]
             water_f_hist = round(water_c * 9/5 + 32, 1)
 
-            if doy in weather_norms and weather_norms[doy]["air_temp_f"] is not None:
-                air = weather_norms[doy]["air_temp_f"]
-                w = weather_norms[doy]["wind_mph"]
-                s = weather_norms[doy]["solar_w"]
-            else:
-                air = seasonal_air_temp_f(doy)
-                w = seasonal_wind_mph(doy)
-                s = seasonal_solar_w(doy)
+        if doy in weather_norms and weather_norms[doy]["air_temp_f"] is not None:
+            air = weather_norms[doy]["air_temp_f"]
+            w = weather_norms[doy]["wind_mph"]
+            s = weather_norms[doy]["solar_w"]
+        else:
+            air = seasonal_air_temp_f(doy)
+            w = seasonal_wind_mph(doy)
+            s = seasonal_solar_w(doy)
 
-            r = seasonal_rain_pct(doy)
+        r = seasonal_rain_pct(doy)
+
+        if water_f_hist is not None:
             hist_score, _ = compute_comfort(water_f_hist, air, w, s, r)
-            historical_curves[date.strftime("%Y-%m-%d")] = hist_score
+        else:
+            hist_score = None
+
+        historical_days.append({
+            "date": date.strftime("%Y-%m-%d"),
+            "score": hist_score,
+            "water_temp_f": water_f_hist,
+            "air_temp_f": round(air, 1) if air else None,
+            "solar_w": round(s, 0) if s else None,
+            "rain_pct": round(r, 0),
+        })
         date += timedelta(days=1)
 
     # Smooth the forecast with a 7-day rolling average for readability
@@ -317,20 +367,34 @@ if __name__ == "__main__":
     for i, d in enumerate(forecast_days):
         d["smoothed_score"] = round(float(scores_smoothed.iloc[i]), 1)
 
-    hist_dates = sorted(historical_curves.keys())
-    hist_scores_raw = [historical_curves[d] for d in hist_dates]
+    hist_scores_raw = [d["score"] if d["score"] is not None else np.nan for d in historical_days]
     hist_smoothed = pd.Series(hist_scores_raw).rolling(window=7, min_periods=1, center=True).mean()
-    historical_output = [
-        {"date": d, "score": round(float(hist_smoothed.iloc[i]), 1)}
-        for i, d in enumerate(hist_dates)
-    ]
+    for i, d in enumerate(historical_days):
+        d["smoothed_score"] = round(float(hist_smoothed.iloc[i]), 1) if not np.isnan(hist_smoothed.iloc[i]) else None
+
+    # Build actuals: current year observed data (dates up to today)
+    today_str = today.strftime("%Y-%m-%d")
+    actuals = []
+    date = season_start
+    while date <= season_end and date.strftime("%Y-%m-%d") <= today_str:
+        ds = date.strftime("%Y-%m-%d")
+        water_f_actual = current_year_water.get(ds)
+        weather_actual = current_year_weather.get(ds, {})
+        actuals.append({
+            "date": ds,
+            "water_temp_f": water_f_actual,
+            "air_temp_f": weather_actual.get("air_temp_f"),
+            "solar_w": weather_actual.get("solar_w"),
+        })
+        date += timedelta(days=1)
 
     output = {
         "generated_at": today.strftime("%Y-%m-%dT%H:%M:%S"),
         "year": year,
         "bias_f": round(bias_f, 1),
         "forecast": forecast_days,
-        "historical_avg": historical_output,
+        "historical_avg": historical_days,
+        "actuals": actuals,
     }
 
     # Write output

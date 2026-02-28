@@ -54,7 +54,9 @@ document.addEventListener("DOMContentLoaded", function () {
         // Metric definitions
         const metrics = {
             comfort: {
-                field: "smoothed_score",
+                forecastField: "smoothed_score",
+                histField: "smoothed_score",
+                actualsField: null,  // comfort has no separate actuals
                 label: "Comfort Score",
                 unit: "",
                 color: "#2980b9",
@@ -63,11 +65,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 stepSize: 20,
                 tickLabels: { 0: "Unsafe", 20: "Poor", 40: "Fair", 60: "Good", 80: "Excellent", 100: "" },
                 tierBands: true,
-                hasHistorical: true,
                 tooltipSuffix: "",
             },
             water_temp: {
-                field: "water_temp_f",
+                forecastField: "water_temp_f",
+                histField: "water_temp_f",
+                actualsField: "water_temp_f",
                 label: "Water Temperature",
                 unit: "\u00B0F",
                 color: "#e67e22",
@@ -76,11 +79,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 stepSize: 10,
                 tickLabels: null,
                 tierBands: false,
-                hasHistorical: false,
                 tooltipSuffix: "\u00B0F",
             },
             air_temp: {
-                field: "air_temp_f",
+                forecastField: "air_temp_f",
+                histField: "air_temp_f",
+                actualsField: "air_temp_f",
                 label: "Air Temperature",
                 unit: "\u00B0F",
                 color: "#e74c3c",
@@ -89,11 +93,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 stepSize: 10,
                 tickLabels: null,
                 tierBands: false,
-                hasHistorical: false,
                 tooltipSuffix: "\u00B0F",
             },
             solar: {
-                field: "solar_w",
+                forecastField: "solar_w",
+                histField: "solar_w",
+                actualsField: "solar_w",
                 label: "Solar Radiation",
                 unit: " W/m\u00B2",
                 color: "#f1c40f",
@@ -102,11 +107,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 stepSize: 200,
                 tickLabels: null,
                 tierBands: false,
-                hasHistorical: false,
                 tooltipSuffix: " W/m\u00B2",
             },
             rain: {
-                field: "rain_pct",
+                forecastField: "rain_pct",
+                histField: "rain_pct",
+                actualsField: null,  // no actuals for rain (model-only)
                 label: "Rain Chance",
                 unit: "%",
                 color: "#3498db",
@@ -115,10 +121,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 stepSize: 25,
                 tickLabels: null,
                 tierBands: false,
-                hasHistorical: false,
                 tooltipSuffix: "%",
             },
         };
+
+        // Today boundary for splitting actual vs forecast
+        const todayStr = new Date().toISOString().slice(0, 10);
 
         // Comfort tier background bands
         function tierBandsPlugin() {
@@ -245,14 +253,55 @@ document.addEventListener("DOMContentLoaded", function () {
             if (chart) chart.destroy();
 
             const m = metrics[metricKey];
+            const datasets = [];
 
-            const projected = data.forecast.map(d => ({
-                x: new Date(d.date + "T12:00:00"),
-                y: d[m.field]
-            }));
+            if (m.actualsField && data.actuals) {
+                // Actual data (solid line up to today)
+                const actualPts = data.actuals
+                    .filter(d => d[m.actualsField] != null)
+                    .map(d => ({ x: new Date(d.date + "T12:00:00"), y: d[m.actualsField] }));
 
-            const datasets = [
-                {
+                // Forecast data (from today onward) — include today as overlap point
+                const forecastPts = data.forecast
+                    .filter(d => d.date >= todayStr && d[m.forecastField] != null)
+                    .map(d => ({ x: new Date(d.date + "T12:00:00"), y: d[m.forecastField] }));
+
+                // Connect the two lines: add last actual point to start of forecast
+                if (actualPts.length && forecastPts.length) {
+                    const bridge = actualPts[actualPts.length - 1];
+                    if (forecastPts[0].x.getTime() !== bridge.x.getTime()) {
+                        forecastPts.unshift({ ...bridge });
+                    }
+                }
+
+                datasets.push({
+                    label: "This Year (Actual)",
+                    data: actualPts,
+                    borderColor: m.color,
+                    backgroundColor: m.color + "22",
+                    fill: true,
+                    borderWidth: 2.5,
+                    pointRadius: 0,
+                    tension: 0.4
+                });
+                datasets.push({
+                    label: "Forecast",
+                    data: forecastPts,
+                    borderColor: m.color,
+                    backgroundColor: m.color + "11",
+                    fill: true,
+                    borderWidth: 2.5,
+                    borderDash: [6, 3],
+                    pointRadius: 0,
+                    tension: 0.4
+                });
+            } else {
+                // Comfort score and rain: single projected line
+                const projected = data.forecast.map(d => ({
+                    x: new Date(d.date + "T12:00:00"),
+                    y: d[m.forecastField]
+                }));
+                datasets.push({
                     label: m.label + " (Projected)",
                     data: projected,
                     borderColor: m.color,
@@ -261,14 +310,17 @@ document.addEventListener("DOMContentLoaded", function () {
                     borderWidth: 2.5,
                     pointRadius: 0,
                     tension: 0.4
-                }
-            ];
+                });
+            }
 
-            if (m.hasHistorical && data.historical_avg) {
-                const historical = data.historical_avg.map(d => ({
-                    x: new Date(d.date + "T12:00:00"),
-                    y: d.score
-                }));
+            // Historical average line (always shown)
+            if (data.historical_avg) {
+                const historical = data.historical_avg
+                    .filter(d => d[m.histField] != null)
+                    .map(d => ({
+                        x: new Date(d.date + "T12:00:00"),
+                        y: d[m.histField]
+                    }));
                 datasets.push({
                     label: "Historical Average",
                     data: historical,
@@ -295,17 +347,20 @@ document.addEventListener("DOMContentLoaded", function () {
                     interaction: { mode: "index", intersect: false },
                     onClick: (evt, elements) => {
                         if (!elements.length) return;
-                        const idx = elements[0].index;
-                        const di = elements[0].datasetIndex;
-                        if (di !== 0) return;
-                        const day = data.forecast[idx];
+                        // Find the forecast day closest to the clicked date
+                        const el = elements.find(e => e.datasetIndex === 0) || elements[0];
+                        const clickedX = el.element.x;
+                        const xScale = chart.scales.x;
+                        const dateVal = xScale.getValueForPixel(clickedX);
+                        const clickDate = new Date(dateVal).toISOString().slice(0, 10);
+                        const day = data.forecast.find(d => d.date === clickDate);
                         if (day) showDetail(day);
                     },
                     scales: {
                         x: {
                             type: "time",
-                            min: new Date(year, 2, 1, 12).getTime(),  // March 1
-                            max: new Date(year, 9, 31, 12).getTime(), // October 31
+                            min: new Date(year, 2, 1, 12).getTime(),
+                            max: new Date(year, 9, 31, 12).getTime(),
                             time: {
                                 unit: "month",
                                 tooltipFormat: "MMM d",
@@ -335,8 +390,8 @@ document.addEventListener("DOMContentLoaded", function () {
                                 },
                                 label: (ti) => {
                                     const val = ti.raw.y != null ? Math.round(ti.raw.y) : "\u2014";
-                                    if (ti.datasetIndex === 0) return m.label + ": " + val + m.tooltipSuffix;
-                                    return "Historical: " + val;
+                                    const dsLabel = ti.dataset.label;
+                                    return dsLabel + ": " + val + m.tooltipSuffix;
                                 }
                             }
                         }
@@ -347,14 +402,21 @@ document.addEventListener("DOMContentLoaded", function () {
             chart.config._tierBands = m.tierBands;
         }
 
-        // Legend visibility
+        // Legend
         const legendStrip = document.getElementById("legendStrip");
 
         function setMetric(metricKey) {
             document.querySelectorAll(".metric-pill").forEach(p => p.classList.remove("active"));
             document.querySelector(`.metric-pill[data-metric="${metricKey}"]`).classList.add("active");
             buildChart(metricKey);
-            legendStrip.style.display = metrics[metricKey].hasHistorical ? "" : "none";
+
+            const m = metrics[metricKey];
+            const thisYearLabel = m.actualsField ? "This year" : "This year (projected)";
+            legendStrip.innerHTML = `
+                <span class="legend-item"><span class="legend-dot" style="background:${m.color}"></span> ${thisYearLabel}</span>
+                <span class="legend-item"><span class="legend-dot" style="background:#bbb"></span> Historical average</span>
+            `;
+            legendStrip.style.display = "";
         }
 
         // Pill click handlers
