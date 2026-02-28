@@ -137,7 +137,134 @@ html, body {
     color: #888;
 }
 
-/* Comfort tier background bands */
+/* Detail panel */
+
+.detail-panel {
+    display: none;
+    max-width: 500px;
+    margin: 0 auto 1.5rem;
+    padding: 1.25rem 1.5rem;
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #e0e0e0;
+}
+
+.detail-panel.open {
+    display: block;
+}
+
+.detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.detail-header h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+}
+
+.detail-close {
+    font-size: 1.4rem;
+    color: #aaa;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 0.25rem;
+}
+
+.detail-close:hover {
+    color: #666;
+}
+
+.detail-score-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+}
+
+.detail-score-badge {
+    display: inline-block;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #333;
+}
+
+.detail-score-label {
+    font-size: 0.95rem;
+    color: #888;
+}
+
+.detail-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.detail-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.detail-bar-label {
+    width: 75px;
+    font-size: 0.8rem;
+    color: #777;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.detail-bar-track {
+    flex: 1;
+    height: 14px;
+    background: #f0f0f0;
+    border-radius: 7px;
+    overflow: hidden;
+}
+
+.detail-bar-fill {
+    height: 100%;
+    border-radius: 7px;
+    transition: width 0.3s ease;
+}
+
+.detail-bar-value {
+    width: 32px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #555;
+    flex-shrink: 0;
+}
+
+.detail-conditions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    font-size: 0.85rem;
+    color: #666;
+    border-top: 1px solid #f0f0f0;
+    padding-top: 0.75rem;
+}
+
+.detail-condition {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.detail-condition-label {
+    color: #999;
+}
+
+.detail-condition-value {
+    font-weight: 600;
+    color: #555;
+}
 
 @media (max-width: 600px) {
     .site-title { font-size: 1.35rem; }
@@ -146,4 +273,5 @@ html, body {
         min-height: 280px;
     }
     .tier-guide { margin: 0.5rem 0.75rem 1.5rem; }
+    .detail-panel { margin: 0 0.75rem 1.5rem; }
 }

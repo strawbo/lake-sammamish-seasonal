@@ -111,7 +111,69 @@ document.addEventListener("DOMContentLoaded", function () {
             };
         }
 
+        // Detail panel
+        const detailPanel = document.getElementById("detailPanel");
+        const detailClose = document.getElementById("detailClose");
+        detailClose.addEventListener("click", () => detailPanel.classList.remove("open"));
+
+        function showDetail(dayData) {
+            detailPanel.classList.add("open");
+
+            const dt = new Date(dayData.date + "T12:00:00");
+            document.getElementById("detailDate").textContent =
+                new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(dt);
+
+            document.getElementById("detailBadge").textContent = Math.round(dayData.smoothed_score);
+            document.getElementById("detailLabel").textContent = dayData.label;
+
+            const components = [
+                { key: "water_temp", label: "Water temp", weight: 30 },
+                { key: "air_temp", label: "Air temp", weight: 20 },
+                { key: "wind", label: "Wind", weight: 15 },
+                { key: "sun", label: "Sunshine", weight: 10 },
+                { key: "rain", label: "Rain", weight: 10 },
+            ];
+
+            function barColor(score) {
+                if (score >= 70) return "#27ae60";
+                if (score >= 40) return "#e6a817";
+                return "#e74c3c";
+            }
+
+            const barsEl = document.getElementById("detailBars");
+            barsEl.innerHTML = "";
+            const scores = dayData.component_scores || {};
+            for (const c of components) {
+                const score = scores[c.key] != null ? scores[c.key] : 50;
+                const row = document.createElement("div");
+                row.className = "detail-bar-row";
+                row.innerHTML = `
+                    <span class="detail-bar-label">${c.label}</span>
+                    <div class="detail-bar-track">
+                        <div class="detail-bar-fill" style="width:${score}%;background:${barColor(score)}"></div>
+                    </div>
+                    <span class="detail-bar-value">${Math.round(score)}</span>
+                `;
+                barsEl.appendChild(row);
+            }
+
+            const condEl = document.getElementById("detailConditions");
+            const conditions = [
+                { label: "Water", value: dayData.water_temp_f != null ? dayData.water_temp_f + "\u00B0F" : "—" },
+                { label: "Air", value: dayData.air_temp_f != null ? dayData.air_temp_f + "\u00B0F" : "—" },
+                { label: "Wind", value: dayData.wind_mph != null ? dayData.wind_mph + " mph" : "—" },
+                { label: "Sun", value: dayData.solar_w != null ? Math.round(dayData.solar_w) + " W/m\u00B2" : "—" },
+                { label: "Rain", value: dayData.rain_pct != null ? Math.round(dayData.rain_pct) + "%" : "—" },
+            ];
+            condEl.innerHTML = conditions.map(c =>
+                `<span class="detail-condition"><span class="detail-condition-label">${c.label}</span> <span class="detail-condition-value">${c.value}</span></span>`
+            ).join("");
+
+            detailPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+
         const canvas = document.getElementById("forecastChart");
+        canvas.style.cursor = "pointer";
         new Chart(canvas, {
             type: "line",
             data: {
@@ -143,6 +205,14 @@ document.addEventListener("DOMContentLoaded", function () {
                 responsive: true,
                 maintainAspectRatio: false,
                 interaction: { mode: "index", intersect: false },
+                onClick: (evt, elements) => {
+                    if (!elements.length) return;
+                    const idx = elements[0].index;
+                    const di = elements[0].datasetIndex;
+                    if (di !== 0) return; // only projected line
+                    const day = data.forecast[idx];
+                    if (day) showDetail(day);
+                },
                 scales: {
                     x: {
                         type: "time",

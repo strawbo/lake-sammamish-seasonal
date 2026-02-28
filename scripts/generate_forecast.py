@@ -278,6 +278,7 @@ if __name__ == "__main__":
             "wind_mph": round(wind, 1) if wind else None,
             "solar_w": round(solar, 0) if solar else None,
             "rain_pct": round(rain, 0),
+            "component_scores": {k: round(v, 1) for k, v in scores.items()},
         })
 
     # Also generate historical year curves for comparison
