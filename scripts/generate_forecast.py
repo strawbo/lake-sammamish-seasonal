@@ -14,14 +14,29 @@ The approach:
 import os
 import json
 import math
+import socket
 import numpy as np
 import pandas as pd
+from urllib.parse import urlparse, urlunparse
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 load_dotenv()
 DB_URL = os.getenv("SUPABASE_DB_URL")
+
+
+def resolve_to_ipv4(url):
+    """Replace hostname with IPv4 address to avoid IPv6 issues on GitHub Actions."""
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    try:
+        ipv4 = socket.getaddrinfo(hostname, None, socket.AF_INET)[0][4][0]
+        # Replace hostname with IP, preserving port and credentials
+        netloc = parsed.netloc.replace(hostname, ipv4)
+        return urlunparse(parsed._replace(netloc=netloc))
+    except socket.gaierror:
+        return url  # Fall back to original
 
 
 # --- Comfort scoring functions (same as compute_comfort.py) ---
@@ -198,7 +213,8 @@ def seasonal_rain_pct(doy):
 # --- Main ---
 
 if __name__ == "__main__":
-    engine = create_engine(DB_URL)
+    db_url = resolve_to_ipv4(DB_URL)
+    engine = create_engine(db_url)
     conn = engine.connect()
     print("Connected to database")
 
