@@ -123,6 +123,20 @@ document.addEventListener("DOMContentLoaded", function () {
                 tierBands: false,
                 tooltipSuffix: "%",
             },
+            aqi: {
+                forecastField: "aqi",
+                histField: "aqi",
+                actualsField: "aqi",
+                label: "Air Quality Index",
+                unit: "",
+                color: "#9b59b6",
+                yMin: 0,
+                yMax: 150,
+                stepSize: 50,
+                tickLabels: { 0: "Good", 50: "Moderate", 100: "Unhealthy (SG)", 150: "" },
+                tierBands: false,
+                tooltipSuffix: " AQI",
+            },
         };
 
         // Today boundary for splitting actual vs forecast
