@@ -69,7 +69,17 @@ def score_rain(pct):
     if pct is None: return 50
     return max(0, min(100, 100 - pct))
 
-def compute_comfort(water_f, air_f, wind_mph, solar_w, rain_pct):
+def score_aqi(aqi):
+    if aqi is None: return 80
+    return _interpolate(aqi, [(0,100),(50,100),(75,80),(100,60),(150,30),(200,0)])
+
+def precip_mm_to_pct(mm):
+    """Convert daily precipitation mm to an approximate rain penalty percentage."""
+    if mm is None:
+        return None
+    return min(100, mm * 15)
+
+def compute_comfort(water_f, air_f, wind_mph, solar_w, rain_pct, aqi_val=None):
     """Simplified comfort score using the major factors."""
     scores = {
         "water_temp": score_water_temp(water_f),
@@ -79,11 +89,13 @@ def compute_comfort(water_f, air_f, wind_mph, solar_w, rain_pct):
         "rain": score_rain(rain_pct),
     }
     weights = {"water_temp": 0.30, "air_temp": 0.20, "wind": 0.15, "sun": 0.10, "rain": 0.10}
-    # Clarity, algae, AQI use neutral defaults for long-range (not predictable)
-    neutral_contrib = 75 * 0.05 + 80 * 0.025 + 80 * 0.025  # clarity + algae + aqi
+    # Clarity and algae use neutral defaults (not available in historical data)
+    neutral_contrib = 75 * 0.05 + 80 * 0.025  # clarity + algae
+    # AQI: use actual historical if available, otherwise neutral default
+    aqi_contrib = score_aqi(aqi_val) * 0.025 if aqi_val is not None else 80 * 0.025
     baseline = 100 * 0.05  # baseline bonus
 
-    weighted = sum(scores[k] * weights[k] for k in weights) + neutral_contrib + baseline
+    weighted = sum(scores[k] * weights[k] for k in weights) + neutral_contrib + aqi_contrib + baseline
     return round(min(100, max(0, weighted)), 1), scores
 
 
@@ -156,22 +168,26 @@ def get_historical_weather_norms(conn):
     """Get historical weather norms from met_data by day-of-year.
 
     Uses daily MAX for air temp and solar (peak daytime values),
-    AVG for wind speed. Then averages across a +/-7 day window around
-    each DOY to smooth out noise from limited years of data.
-    Returns dict of doy -> {air_temp_f, wind_mph, solar_w}
+    AVG for wind speed, SUM for precipitation, AVG for AQI.
+    Then averages across a +/-7 day window around each DOY to smooth noise.
+    Returns dict of doy -> {air_temp_f, wind_mph, solar_w, precip_mm, aqi}
     """
     # First get raw per-DOY averages
     result = conn.execute(text("""
         SELECT doy,
                AVG(max_air_c) AS avg_max_air_c,
                AVG(avg_wind_ms) AS avg_wind_ms,
-               AVG(max_solar_w) AS avg_max_solar_w
+               AVG(max_solar_w) AS avg_max_solar_w,
+               AVG(total_precip_mm) AS avg_precip_mm,
+               AVG(avg_aqi) AS avg_aqi
         FROM (
             SELECT EXTRACT(DOY FROM date::date) AS doy,
                    date::date AS day,
                    MAX(air_temperature_c) AS max_air_c,
                    AVG(wind_speed_ms) AS avg_wind_ms,
-                   MAX(solar_radiation_w) AS max_solar_w
+                   MAX(solar_radiation_w) AS max_solar_w,
+                   SUM(precipitation_mm) AS total_precip_mm,
+                   AVG(us_aqi) AS avg_aqi
             FROM met_data
             WHERE air_temperature_c IS NOT NULL
             GROUP BY EXTRACT(DOY FROM date::date), date::date
@@ -186,13 +202,15 @@ def get_historical_weather_norms(conn):
             "air_c": float(r[1]) if r[1] else None,
             "wind_ms": float(r[2]) if r[2] else None,
             "solar": float(r[3]) if r[3] else None,
+            "precip_mm": float(r[4]) if r[4] else None,
+            "aqi": float(r[5]) if r[5] else None,
         }
 
     # Smooth with a +/-7 day window around each DOY
     WINDOW = 7
     norms = {}
     for doy in range(1, 366):
-        air_vals, wind_vals, solar_vals = [], [], []
+        air_vals, wind_vals, solar_vals, precip_vals, aqi_vals = [], [], [], [], []
         for offset in range(-WINDOW, WINDOW + 1):
             neighbor = ((doy - 1 + offset) % 365) + 1
             if neighbor in raw:
@@ -202,13 +220,21 @@ def get_historical_weather_norms(conn):
                     wind_vals.append(raw[neighbor]["wind_ms"])
                 if raw[neighbor]["solar"] is not None:
                     solar_vals.append(raw[neighbor]["solar"])
+                if raw[neighbor]["precip_mm"] is not None:
+                    precip_vals.append(raw[neighbor]["precip_mm"])
+                if raw[neighbor]["aqi"] is not None:
+                    aqi_vals.append(raw[neighbor]["aqi"])
         air_c = sum(air_vals) / len(air_vals) if air_vals else None
         wind_ms = sum(wind_vals) / len(wind_vals) if wind_vals else None
         solar = sum(solar_vals) / len(solar_vals) if solar_vals else None
+        precip_mm = sum(precip_vals) / len(precip_vals) if precip_vals else None
+        aqi = sum(aqi_vals) / len(aqi_vals) if aqi_vals else None
         norms[doy] = {
             "air_temp_f": round(air_c * 9/5 + 32, 1) if air_c else None,
             "wind_mph": round(wind_ms * 2.237, 1) if wind_ms else None,
             "solar_w": round(solar, 0) if solar else None,
+            "precip_mm": round(precip_mm, 2) if precip_mm is not None else None,
+            "aqi": round(aqi, 0) if aqi is not None else None,
         }
     return norms
 
@@ -283,7 +309,9 @@ if __name__ == "__main__":
         SELECT date::date AS day,
                MAX(air_temperature_c) AS max_air_c,
                AVG(wind_speed_ms) AS avg_wind_ms,
-               MAX(solar_radiation_w) AS max_solar_w
+               MAX(solar_radiation_w) AS max_solar_w,
+               SUM(precipitation_mm) AS total_precip_mm,
+               AVG(us_aqi) AS avg_aqi
         FROM met_data
         WHERE date >= DATE_TRUNC('year', NOW())
           AND air_temperature_c IS NOT NULL
@@ -293,10 +321,14 @@ if __name__ == "__main__":
         air_c = float(r[1]) if r[1] else None
         wind_ms = float(r[2]) if r[2] else None
         solar = float(r[3]) if r[3] else None
+        precip_mm = float(r[4]) if r[4] else None
+        aqi = float(r[5]) if r[5] else None
         current_year_weather[r[0].strftime("%Y-%m-%d")] = {
             "air_temp_f": round(air_c * 9/5 + 32, 1) if air_c else None,
             "wind_mph": round(wind_ms * 2.237, 1) if wind_ms else None,
             "solar_w": round(solar, 0) if solar else None,
+            "precip_mm": round(precip_mm, 2) if precip_mm is not None else None,
+            "aqi": round(aqi, 0) if aqi is not None else None,
         }
     print(f"Current year weather actuals: {len(current_year_weather)} days")
 
@@ -362,10 +394,17 @@ if __name__ == "__main__":
             if "solar_w" in latest_actuals and solar is not None:
                 solar = round(latest_actuals["solar_w"] * (1 - blend) + solar * blend, 0)
 
-        rain = seasonal_rain_pct(doy)
+        # Rain: prefer historical norm, fall back to sine curve
+        if doy in weather_norms and weather_norms[doy].get("precip_mm") is not None:
+            rain = precip_mm_to_pct(weather_norms[doy]["precip_mm"])
+        else:
+            rain = seasonal_rain_pct(doy)
+
+        # AQI: prefer historical norm
+        aqi_val = weather_norms[doy].get("aqi") if doy in weather_norms else None
 
         # Compute comfort score
-        overall, scores = compute_comfort(water_f, air_f, wind, solar, rain)
+        overall, scores = compute_comfort(water_f, air_f, wind, solar, rain, aqi_val)
 
         forecast_days.append({
             "date": date.strftime("%Y-%m-%d"),
@@ -376,6 +415,7 @@ if __name__ == "__main__":
             "wind_mph": round(wind, 1) if wind else None,
             "solar_w": round(solar, 0) if solar else None,
             "rain_pct": round(rain, 0),
+            "aqi": aqi_val,
             "component_scores": {k: round(v, 1) for k, v in scores.items()},
         })
         date += timedelta(days=1)
@@ -400,10 +440,15 @@ if __name__ == "__main__":
             w = seasonal_wind_mph(doy)
             s = seasonal_solar_w(doy)
 
-        r = seasonal_rain_pct(doy)
+        if doy in weather_norms and weather_norms[doy].get("precip_mm") is not None:
+            r = precip_mm_to_pct(weather_norms[doy]["precip_mm"])
+        else:
+            r = seasonal_rain_pct(doy)
+
+        hist_aqi = weather_norms[doy].get("aqi") if doy in weather_norms else None
 
         if water_f_hist is not None:
-            hist_score, _ = compute_comfort(water_f_hist, air, w, s, r)
+            hist_score, _ = compute_comfort(water_f_hist, air, w, s, r, hist_aqi)
         else:
             hist_score = None
 
@@ -414,6 +459,7 @@ if __name__ == "__main__":
             "air_temp_f": round(air, 1) if air else None,
             "solar_w": round(s, 0) if s else None,
             "rain_pct": round(r, 0),
+            "aqi": hist_aqi,
         })
         date += timedelta(days=1)
 
@@ -458,6 +504,8 @@ if __name__ == "__main__":
             "water_temp_f": water_f_actual,
             "air_temp_f": weather_actual.get("air_temp_f"),
             "solar_w": weather_actual.get("solar_w"),
+            "precip_mm": weather_actual.get("precip_mm"),
+            "aqi": weather_actual.get("aqi"),
         })
         date += timedelta(days=1)
 
